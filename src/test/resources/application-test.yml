@@ -1,0 +1,34 @@
+# ============================================================
+# 测试环境：H2 内存数据库，每次启动重建表结构，禁用种子数据
+# NON_KEYWORDS=USER 用于放行实体表名 user（H2 2.x 默认保留字）
+# ============================================================
+spring:
+  datasource:
+    url: jdbc:h2:mem:exam-test;MODE=MySQL;DB_CLOSE_DELAY=-1;NON_KEYWORDS=USER
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+    open-in-view: false
+    show-sql: false
+  ai:
+    api-key: test-key-not-called
+
+app:
+  seed:
+    enabled: false
+  # 集成测试高频登录/注册，关闭 Bucket4j 限流避免 429
+  rate-limit:
+    enabled: false
+  jwt:
+    secret: unit-test-secret-key-0123456789-abcdef-xxxxxx
+    expiration-ms: 3600000
+
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false

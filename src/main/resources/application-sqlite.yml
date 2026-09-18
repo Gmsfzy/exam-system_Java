@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    # WAL：读不阻塞写、写写串行；busy_timeout：遇锁先等待重试而非立即抛 SQLITE_BUSY
+    url: jdbc:sqlite:exam_system.db?journal_mode=WAL&busy_timeout=5000&synchronous=NORMAL
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      pool-name: sqlite-pool
+      # SQLite 单写者，收敛连接池规模避免过多并发写事务抢锁
+      maximum-pool-size: 5
+      minimum-idle: 1
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: true
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+
+logging:
+  level:
+    org.hibernate.SQL: INFO

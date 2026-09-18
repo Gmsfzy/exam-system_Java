@@ -1,0 +1,29 @@
+# ============================================================
+# Microsoft SQL Server profile
+# 用法（开发）: --spring.profiles.active=mssql
+# 用法（生产）: --spring.profiles.active=prod,mssql
+# mssql-jdbc 驱动已内置在打包依赖中，无需再修改 pom.xml
+# 环境变量:
+#   MSSQL_URL      （可选，默认指向本机 1433 的 exam_system 库）
+#   MSSQL_USER     （默认 sa）
+#   MSSQL_PASSWORD （必填）
+# ============================================================
+spring:
+  datasource:
+    url: ${MSSQL_URL:jdbc:sqlserver://localhost:1433;databaseName=exam_system;encrypt=true;trustServerCertificate=true}
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    username: ${MSSQL_USER:sa}
+    password: ${MSSQL_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Asia/Shanghai
+        format_sql: false
+    database-platform: org.hibernate.dialect.SQLServerDialect
+
+logging:
+  level:
+    org.hibernate.SQL: WARN
