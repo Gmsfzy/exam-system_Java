@@ -26,34 +26,40 @@
     </div>
 
     <template v-if="!submitted">
-      <div v-for="(q, idx) in questions" :key="q.questionId" class="question-card">
-        <h4>
-          <span class="chip gray">{{ idx + 1 }}</span>
-          <span class="chip">{{ typeLabel(q.type) }}</span>
-          <span class="chip orange">{{ diffLabel(q.difficulty) }}</span>
-          <span v-if="q.isAnswered" class="chip green">已答</span>
-          <span style="float: right; font-size: 14px; color: #909399;">{{ q.score }} 分</span>
-          <div style="margin-top: 12px; font-size: 16px; font-weight: 500; color: #303133;">{{ q.content }}</div>
-        </h4>
-
-        <div v-if="q.options && q.options.length" class="options">
-          <div
-            v-for="(opt, i) in q.options"
-            :key="i"
-            :class="{ selected: isSelected(q, String.fromCharCode(65 + i)) }"
-            @click="selectOption(q, String.fromCharCode(65 + i))"
-          >
-            <strong>{{ String.fromCharCode(65 + i) }}.</strong> {{ opt }}
-          </div>
+      <div v-for="(q, idx) in renderQuestions" :key="q.questionId">
+        <div v-if="q._showMaterial" class="material-card">
+          <div class="material-title">📄 共享材料</div>
+          <div class="material-body">{{ q.material }}</div>
         </div>
+        <div class="question-card" :style="q._showMaterial ? 'margin-top: 8px;' : ''">
+          <h4>
+            <span class="chip gray">{{ idx + 1 }}</span>
+            <span class="chip">{{ typeLabel(q.type) }}</span>
+            <span class="chip orange">{{ diffLabel(q.difficulty) }}</span>
+            <span v-if="q.isAnswered" class="chip green">已答</span>
+            <span style="float: right; font-size: 14px; color: #909399;">{{ q.score }} 分</span>
+            <div style="margin-top: 12px; font-size: 16px; font-weight: 500; color: #303133;">{{ q.content }}</div>
+          </h4>
 
-        <textarea
-          v-else
-          v-model="answers[q.questionId]"
-          placeholder="请在此处输入你的答案..."
-          @blur="saveAnswer(q.questionId)"
-          @change="saveAnswer(q.questionId)"
-        ></textarea>
+          <div v-if="q.options && q.options.length" class="options">
+            <div
+              v-for="(opt, i) in q.options"
+              :key="i"
+              :class="{ selected: isSelected(q, String.fromCharCode(65 + i)) }"
+              @click="selectOption(q, String.fromCharCode(65 + i))"
+            >
+              <strong>{{ String.fromCharCode(65 + i) }}.</strong> {{ opt }}
+            </div>
+          </div>
+
+          <textarea
+            v-else
+            v-model="answers[q.questionId]"
+            placeholder="请在此处输入你的答案..."
+            @blur="saveAnswer(q.questionId)"
+            @change="saveAnswer(q.questionId)"
+          ></textarea>
+        </div>
       </div>
 
       <div style="text-align: center; padding: 24px;">
@@ -93,6 +99,23 @@ let lastHidden = false
 let lastSwitchAt = 0
 
 const totalScore = computed(() => questions.value.reduce((s, q) => s + (q.score || 0), 0))
+
+// M6 材料题：同 materialGroup 仅在首题上方渲染一次共享材料卡
+const renderQuestions = computed(() => {
+  const seen = new Set()
+  return (questions.value || []).map(q => {
+    const hasMat = !!(q.material && String(q.material).trim())
+    let showMaterial = false
+    if (hasMat) {
+      if (q.materialGroup) {
+        if (!seen.has(q.materialGroup)) { seen.add(q.materialGroup); showMaterial = true }
+      } else {
+        showMaterial = true
+      }
+    }
+    return { ...q, _showMaterial: showMaterial }
+  })
+})
 
 onMounted(async () => {
   try {
@@ -274,5 +297,25 @@ textarea {
   border: 1px solid #dcdfe6;
   border-radius: 6px;
   padding: 10px;
+}
+.material-card {
+  border: 1px solid var(--el-color-primary-light-5);
+  border-left: 4px solid var(--el-color-primary);
+  background: var(--wash-blue);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-top: 16px;
+}
+.material-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-color-primary-dark-2);
+  margin-bottom: 6px;
+}
+.material-body {
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  color: var(--ink-2);
 }
 </style>

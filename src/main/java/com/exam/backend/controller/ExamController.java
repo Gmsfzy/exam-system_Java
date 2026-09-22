@@ -132,4 +132,54 @@ public class ExamController {
                                                                       @AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(examStudentService.removeStudent(id, studentId, principal.getId()));
     }
+
+    // ==== M6 考务升级端点 ====
+
+    @PostMapping("/{id}/publish_results")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<ExamDto.PublishResultsResponse> publishResults(@PathVariable Long id,
+                                                                      @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(examService.publishResults(id, principal.getId()));
+    }
+
+    @PostMapping("/{id}/grant_attempt")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<ExamDto.GrantAttemptResponse> grantAttempt(@PathVariable Long id,
+                                                                  @RequestBody ExamDto.GrantAttemptRequest req,
+                                                                  @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(examService.grantAttempt(id, req, principal.getId()));
+    }
+
+    @GetMapping("/{id}/monitor")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<List<ExamDto.MonitorRow>> monitor(@PathVariable Long id,
+                                                         @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(examService.monitor(id, principal.getId()));
+    }
+
+    @GetMapping("/{id}/results/export")
+    @PreAuthorize("hasRole('TEACHER')")
+    public org.springframework.http.ResponseEntity<byte[]> exportResults(@PathVariable Long id,
+                                                                         @AuthenticationPrincipal UserPrincipal principal) {
+        byte[] data = examService.exportResultsExcel(id, principal.getId());
+        return org.springframework.http.ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=exam_" + id + "_results.xlsx")
+                .contentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM)
+                .body(data);
+    }
+
+    @PostMapping("/{id}/ai_inspect")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<com.exam.backend.dto.AiDto.AiInspectResponse> aiInspect(@PathVariable Long id,
+                                                                               @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(examService.aiInspect(id, principal.getId()));
+    }
+
+    @GetMapping("/{id}/item_analysis")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<List<ExamDto.ItemAnalysisRow>> itemAnalysis(@PathVariable Long id,
+                                                                   @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(examService.itemAnalysis(id, principal.getId()));
+    }
 }

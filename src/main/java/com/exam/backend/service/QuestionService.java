@@ -59,6 +59,8 @@ public class QuestionService {
                 .majorId(req.majorId())
                 .courseId(req.courseId())
                 .chapterId(req.chapterId())
+                .material(req.material())
+                .materialGroup(req.materialGroup())
                 .build();
         questionRepository.save(q);
         return toResponse(q, false);
@@ -83,6 +85,8 @@ public class QuestionService {
         if (req.majorId() != null) q.setMajorId(req.majorId());
         if (req.courseId() != null) q.setCourseId(req.courseId());
         if (req.chapterId() != null) q.setChapterId(req.chapterId());
+        if (req.material() != null) q.setMaterial(req.material());
+        if (req.materialGroup() != null) q.setMaterialGroup(req.materialGroup());
         return toResponse(q, false);
     }
 
@@ -119,6 +123,7 @@ public class QuestionService {
                 q.getKnowledge(), q.getType(), q.getDifficulty(),
                 q.getSource(), q.getCreatorId(), q.getIsPublic(),
                 q.getMajorId(), q.getCourseId(), q.getChapterId(),
-                q.getCreatedAt());
+                q.getCreatedAt(),
+                q.getMaterial(), q.getMaterialGroup());
     }
 }

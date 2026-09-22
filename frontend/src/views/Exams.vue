@@ -13,6 +13,11 @@
           <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="成绩" width="100">
+        <template #default="{ row }">
+          <el-tag size="small" :type="row.resultsPublished === false ? 'warning' : 'success'">{{ row.resultsPublished === false ? '未发布' : '已发布' }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="340">
         <template #default="{ row }">
           <el-button size="small" @click="goManage(row.id)">管理</el-button>

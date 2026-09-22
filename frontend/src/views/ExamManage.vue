@@ -5,6 +5,9 @@
       <div style="display: flex; gap: 8px;">
         <el-button size="small" type="success" :disabled="exam.status !== 'draft'" @click="publish">发布考试</el-button>
         <el-button size="small" type="warning" :disabled="exam.status === 'ended'" @click="end">结束考试</el-button>
+        <el-button size="small" :disabled="exam.resultsPublished" @click="publishResults">发布成绩</el-button>
+        <el-button size="small" @click="goMonitor">实时监考</el-button>
+        <el-button size="small" @click="goAnalysis">试题分析</el-button>
         <el-button @click="router.back()">返回</el-button>
       </div>
     </div>
@@ -65,12 +68,55 @@
           <el-table-column prop="id" label="ID" width="100" />
           <el-table-column prop="username" label="用户名" />
           <el-table-column prop="email" label="邮箱" />
-          <el-table-column label="操作" width="120">
+          <el-table-column label="操作" width="200">
             <template #default="{ row }">
+              <el-button size="small" @click="openGrant(row)">补考授权</el-button>
               <el-button size="small" type="danger" @click="removeS(row.id)">移除</el-button>
             </template>
           </el-table-column>
         </el-table>
+      </el-tab-pane>
+
+      <el-tab-pane label="考务配置" name="ops">
+        <el-form :model="opsForm" label-width="140px" style="max-width: 620px;">
+          <el-form-item label="成绩发布">
+            <el-switch v-model="opsForm.resultsPublished" active-text="已发布" inactive-text="未发布（学生不可见分）" />
+          </el-form-item>
+          <el-form-item label="允许考试次数">
+            <el-input-number v-model="opsForm.maxAttempts" :min="1" :max="20" />
+          </el-form-item>
+          <el-form-item label="成绩计算策略">
+            <el-radio-group v-model="opsForm.scoreStrategy">
+              <el-radio-button value="last">最后一次</el-radio-button>
+              <el-radio-button value="best">最高分</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="组卷模式">
+            <el-radio-group v-model="opsForm.paperMode">
+              <el-radio-button value="unified">统一卷</el-radio-button>
+              <el-radio-button value="random">随机抽题</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="opsForm.paperMode === 'random'" label="抽题数量">
+            <el-input-number v-model="opsForm.randomCount" :min="0" :max="999" />
+            <span style="margin-left: 10px; color: #909399;">0 表示抽取全部题目</span>
+          </el-form-item>
+          <el-form-item label="选项乱序">
+            <el-switch v-model="opsForm.shuffleOptions" />
+          </el-form-item>
+          <el-form-item label="多选题得分规则">
+            <el-radio-group v-model="opsForm.multiScoreRule">
+              <el-radio-button value="all_or_nothing">全对得分</el-radio-button>
+              <el-radio-button value="partial">漏选按比例</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="匿名阅卷">
+            <el-switch v-model="opsForm.anonymousGrading" active-text="化名展示" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :disabled="exam.status === 'ended'" @click="saveOps">保存配置</el-button>
+          </el-form-item>
+        </el-form>
       </el-tab-pane>
     </el-tabs>
 
@@ -121,6 +167,16 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showGrant" title="补考授权" width="420px">
+      <p style="margin-bottom: 12px;">为考生 <b>{{ grantStudent?.username }}</b> 追加考试次数：</p>
+      <el-input-number v-model="grantExtra" :min="1" :max="10" />
+      <span style="margin-left: 10px; color: #909399;">次（当前上限 {{ exam?.maxAttempts }}）</span>
+      <template #footer>
+        <el-button @click="showGrant = false">取消</el-button>
+        <el-button type="primary" @click="confirmGrant">确认授权</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -159,6 +215,15 @@ const showPickS = ref(false)
 const pickQ = ref([])
 const pickS = ref([])
 
+// M6 考务配置表单 + 补考授权
+const opsForm = reactive({
+  resultsPublished: true, maxAttempts: 1, scoreStrategy: 'last', paperMode: 'unified',
+  randomCount: 0, shuffleOptions: false, multiScoreRule: 'all_or_nothing', anonymousGrading: false
+})
+const showGrant = ref(false)
+const grantExtra = ref(1)
+const grantStudent = ref(null)
+
 const totalScore = computed(() => examQuestions.value.reduce((s, q) => s + (q.score || 0), 0))
 const addedIds = computed(() => new Set(examQuestions.value.map(q => q.questionId)))
 const invitedIds = computed(() => new Set(examStudents.value.map(s => s.id)))
@@ -177,6 +242,16 @@ async function loadAll() {
       studentAPI.list().catch(() => [])
     ])
     exam.value = detail
+    Object.assign(opsForm, {
+      resultsPublished: detail.resultsPublished !== false,
+      maxAttempts: detail.maxAttempts || 1,
+      scoreStrategy: detail.scoreStrategy || 'last',
+      paperMode: detail.paperMode || 'unified',
+      randomCount: detail.randomCount || 0,
+      shuffleOptions: !!detail.shuffleOptions,
+      multiScoreRule: detail.multiScoreRule || 'all_or_nothing',
+      anonymousGrading: !!detail.anonymousGrading
+    })
     examQuestions.value = questions || []
     examStudents.value = students || []
     majors.value = majorList || []
@@ -294,7 +369,46 @@ async function refreshExamStudents() {
 }
 
 function goGrading() { router.push({ path: '/grading', query: { examId } }) }
-function goAnalysis() { router.push({ path: '/results', query: { examId } }) }
+function goAnalysis() { router.push('/exams/' + examId + '/analysis') }
+function goMonitor() { router.push('/exams/' + examId + '/monitor') }
+
+async function saveOps() {
+  try {
+    const payload = { title: exam.value.title, ...opsForm }
+    exam.value = await examAPI.update(examId, payload)
+    ElMessage.success('考务配置已保存')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '保存失败')
+  }
+}
+
+async function publishResults() {
+  try {
+    await ElMessageBox.confirm('确认发布成绩？发布后学生可查看有效成绩，将发送站内通知。', '提示', { type: 'warning' })
+    const res = await examAPI.publishResults(examId)
+    exam.value.resultsPublished = true
+    opsForm.resultsPublished = true
+    ElMessage.success(`成绩已发布，通知 ${res.notified ?? 0} 人`)
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.response?.data?.message || '发布失败')
+  }
+}
+
+function openGrant(row) {
+  grantStudent.value = row
+  grantExtra.value = 1
+  showGrant.value = true
+}
+
+async function confirmGrant() {
+  try {
+    const res = await examAPI.grantAttempt(examId, { studentId: grantStudent.value.id, extraAttempts: grantExtra.value })
+    ElMessage.success(`已授权，该考生上限上调至 ${res.maxAttempts} 次`)
+    showGrant.value = false
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '授权失败')
+  }
+}
 function statusLabel(s) { return { draft: '草稿', published: '已发布', ended: '已结束' }[s] || s }
 function statusType(s) { return { draft: 'info', published: 'success', ended: 'danger' }[s] || '' }
 function typeLabel(t) {

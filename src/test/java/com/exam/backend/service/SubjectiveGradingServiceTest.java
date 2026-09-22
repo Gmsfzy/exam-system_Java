@@ -22,14 +22,15 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.mockito.ArgumentMatchers.eq;
+
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -88,7 +89,8 @@ class SubjectiveGradingServiceTest {
     }
 
     private Result result() {
-        return Result.builder().examId(EXAM_ID).studentId(STUDENT_ID).totalScore(10.0).build();
+        return Result.builder().examId(EXAM_ID).studentId(STUDENT_ID).sessionId(SESSION_ID)
+                .totalScore(10.0).build();
     }
 
     private void stubCommon(Answer answer) {
@@ -101,6 +103,8 @@ class SubjectiveGradingServiceTest {
         when(questionRepository.findAllById(any())).thenReturn(List.of(subjectiveQuestion()));
         when(answerRepository.findBySessionId(SESSION_ID)).thenReturn(List.of(answer));
         when(answerRepository.countUngraded(SESSION_ID)).thenReturn(0L);
+        // M6 发布门控：未发布时改发“评分完成”通知，examRepository 必须可答
+        lenient().when(examRepository.findById(EXAM_ID)).thenReturn(Optional.empty());
     }
 
     @Test
@@ -109,7 +113,7 @@ class SubjectiveGradingServiceTest {
         Answer answer = pendingAnswer();
         Result result = result();
         stubCommon(answer);
-        when(resultRepository.findByExamIdAndStudentId(EXAM_ID, STUDENT_ID)).thenReturn(Optional.of(result));
+        when(resultRepository.findBySessionId(SESSION_ID)).thenReturn(List.of(result));
         when(aiService.gradeSubjective(any(Question.class), any(Answer.class), anyDouble()))
                 .thenReturn(new AiDto.AiGradeResponse(8.0, "思路清晰"));
 
@@ -128,7 +132,7 @@ class SubjectiveGradingServiceTest {
         Answer answer = pendingAnswer();
         Result result = result();
         stubCommon(answer);
-        when(resultRepository.findByExamIdAndStudentId(EXAM_ID, STUDENT_ID)).thenReturn(Optional.of(result));
+        when(resultRepository.findBySessionId(SESSION_ID)).thenReturn(List.of(result));
         when(aiService.gradeSubjective(any(Question.class), any(Answer.class), anyDouble()))
                 .thenThrow(new RuntimeException("AI 服务超时"));
 
@@ -149,6 +153,6 @@ class SubjectiveGradingServiceTest {
 
         // 未抢占即返回：不应发生成绩收尾查询
         org.mockito.Mockito.verify(resultRepository, org.mockito.Mockito.never())
-                .findByExamIdAndStudentId(anyLong(), anyLong());
+                .findBySessionId(any());
     }
 }

@@ -28,4 +28,7 @@ public class AiDto {
     public record AiGradeRequest(Long answerId, String context) {}
 
     public record AiGradeResponse(Double score, String analysis) {}
+
+    /** M6 AI 试卷质检：整卷题清送检，返回问题清单与改进建议 */
+    public record AiInspectResponse(java.util.List<String> issues, java.util.List<String> suggestions) {}
 }

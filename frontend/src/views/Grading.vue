@@ -2,16 +2,26 @@
   <div>
     <div class="page-header">
       <h2>人工阅卷</h2>
-      <el-select v-model="examId" placeholder="选择考试" style="width: 300px;" @change="loadStudents">
-        <el-option v-for="e in exams" :key="e.id" :label="e.title" :value="e.id" />
-      </el-select>
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <el-radio-group v-model="mode" @change="onModeChange">
+          <el-radio-button value="student">逐人批注</el-radio-button>
+          <el-radio-button value="cluster">聚类批注</el-radio-button>
+        </el-radio-group>
+        <el-select v-model="examId" placeholder="选择考试" style="width: 260px;" @change="loadStudents">
+          <el-option v-for="e in exams" :key="e.id" :label="e.title" :value="e.id" />
+        </el-select>
+      </div>
     </div>
 
+    <template v-if="mode === 'student'">
     <el-empty v-if="!examId" description="请先选择一场考试" />
     <el-empty v-else-if="students.length === 0" description="该考试暂无待处理试卷" />
     <el-table v-else :data="students" stripe>
       <el-table-column prop="studentId" label="学生ID" width="90" />
       <el-table-column prop="studentName" label="学生" width="160" />
+      <el-table-column label="轮次" width="80">
+        <template #default="{ row }">第 {{ row.attemptNo || 1 }} 次</template>
+      </el-table-column>
       <el-table-column prop="examTitle" label="考试" min-width="200" />
       <el-table-column label="当前得分" width="160">
         <template #default="{ row }"><strong>{{ row.score }} / {{ row.totalScore }}</strong></template>
@@ -28,6 +38,38 @@
         </template>
       </el-table-column>
     </el-table>
+    </template>
+
+    <template v-else>
+      <el-empty v-if="!examId" description="请先选择一场考试" />
+      <el-empty v-else-if="clusters.length === 0" description="该考试暂无待批注的主观题" />
+      <div v-else>
+        <div v-for="c in clusters" :key="c.questionId" class="answer-card">
+          <div style="margin-bottom: 8px;">
+            <el-tag size="small" style="margin-right: 8px;">{{ typeLabel(c.type) }}</el-tag>
+            <strong>{{ c.content }}</strong>
+            <span style="float: right; color: #909399;">满分 {{ c.maxScore }} · 待批 {{ (c.answers || []).length }} 份</span>
+          </div>
+          <el-collapse>
+            <el-collapse-item :title="`展开 ${ (c.answers || []).length } 份作答`">
+              <div v-for="ans in (c.answers || [])" :key="ans.answerId" style="padding: 6px 0; border-bottom: 1px dashed var(--line);">
+                <div style="font-size: 13px; color: #909399;">{{ ans.studentName }}</div>
+                <div style="white-space: pre-wrap;">{{ ans.studentAnswer || '(未作答)' }}</div>
+                <div v-if="ans.aiAnalysis" style="font-size: 12px; color: var(--el-color-primary);">🤖 AI参考：{{ ans.aiScore }} 分 — {{ ans.aiAnalysis }}</div>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
+            <span><strong>本题统一给分：</strong></span>
+            <el-input-number v-model="c._score" :min="0" :max="c.maxScore || 100" :step="1" size="small" />
+            <el-input v-model="c._comment" placeholder="统一评语（可选）" size="small" style="flex: 1; min-width: 200px;" />
+            <el-button size="small" type="primary" :loading="batchingId === c.questionId" @click="batchGrade(c)">
+              批量给分（{{ (c.answers || []).length }} 份）
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </template>
 
     <el-dialog v-model="showGrade" :title="`评阅 - ${current?.studentName || ''}`" width="820px" top="5vh">
       <div v-if="answers.length === 0" style="text-align: center; padding: 30px; color: #909399;">暂无可评阅的作答</div>
@@ -73,6 +115,10 @@ const current = ref(null)
 const answers = ref([])
 const savingId = ref(null)
 const scoreMap = ref({})
+// M6 聚类批注 / 同题批量给分
+const mode = ref('student')
+const clusters = ref([])
+const batchingId = ref(null)
 
 onMounted(async () => {
   try {
@@ -84,7 +130,9 @@ onMounted(async () => {
 
 async function loadStudents() {
   students.value = []
+  clusters.value = []
   if (!examId.value) return
+  if (mode.value === 'cluster') { await loadClusters(); return }
   try {
     const [list, qs] = await Promise.all([
       resultAPI.gradingList(examId.value).catch(() => []),
@@ -95,6 +143,32 @@ async function loadStudents() {
     for (const q of (qs || [])) scoreMap.value[q.questionId] = q.score
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '加载失败')
+  }
+}
+
+function onModeChange() { loadStudents() }
+
+async function loadClusters() {
+  try {
+    const list = await resultAPI.gradingCluster(examId.value).catch(() => [])
+    clusters.value = (list || []).map(c => ({ ...c, _score: 0, _comment: '' }))
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '聚类加载失败')
+  }
+}
+
+async function batchGrade(c) {
+  batchingId.value = c.questionId
+  try {
+    const res = await resultAPI.batchGradeQuestion(examId.value, {
+      questionId: c.questionId, score: c._score, comment: c._comment
+    })
+    ElMessage.success(`已为 ${res.gradedCount ?? 0} 份作答统一给分`)
+    await loadClusters()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '批量给分失败')
+  } finally {
+    batchingId.value = null
   }
 }
 

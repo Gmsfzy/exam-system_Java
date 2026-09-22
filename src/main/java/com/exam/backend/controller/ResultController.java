@@ -67,4 +67,36 @@ public class ResultController {
                                                              @AuthenticationPrincipal UserPrincipal principal) {
         return ApiResponse.ok(resultService.analyze(examId, principal.getId()));
     }
+
+    // ==== M6 申诉 / 聚类批注 / 同题批量给分 ====
+
+    @PostMapping("/{resultId}/review")
+    public ApiResponse<ResultDto.ReviewResponse> requestReview(@PathVariable Long resultId,
+                                                               @RequestBody ResultDto.ReviewRequest req,
+                                                               @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(resultService.requestReview(resultId, req, principal.getId()));
+    }
+
+    @PostMapping("/{resultId}/review_handle")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<ResultDto.ReviewResponse> handleReview(@PathVariable Long resultId,
+                                                              @Valid @RequestBody ResultDto.ReviewHandleRequest req,
+                                                              @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(resultService.handleReview(resultId, req, principal.getId()));
+    }
+
+    @GetMapping("/grading/{examId}/cluster")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<List<ResultDto.ClusterItem>> gradingCluster(@PathVariable Long examId,
+                                                                   @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(resultService.gradingCluster(examId, principal.getId()));
+    }
+
+    @PostMapping("/grading/{examId}/question_batch")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<ResultDto.BatchGradeResponse> batchGradeQuestion(@PathVariable Long examId,
+                                                                        @Valid @RequestBody ResultDto.BatchGradeRequest req,
+                                                                        @AuthenticationPrincipal UserPrincipal principal) {
+        return ApiResponse.ok(resultService.batchGradeQuestion(examId, req, principal.getId()));
+    }
 }

@@ -110,7 +110,15 @@ export const examAPI = {
   smartComposition: (id, data) =>
     dataOf(api.post(`/exams/${id}/smart_composition`, data)),
   // 学生输入邀请码加入
-  joinByCode: code => dataOf(api.post(`/exam/join/${encodeURIComponent(code)}`))
+  joinByCode: code => dataOf(api.post(`/exam/join/${encodeURIComponent(code)}`)),
+  // ==== M6 考务升级 ====
+  publishResults: id => dataOf(api.post(`/exams/${id}/publish_results`)),
+  grantAttempt: (id, data) => dataOf(api.post(`/exams/${id}/grant_attempt`, data)),
+  monitor: id => dataOf(api.get(`/exams/${id}/monitor`)),
+  aiInspect: id => dataOf(api.post(`/exams/${id}/ai_inspect`)),
+  itemAnalysis: id => dataOf(api.get(`/exams/${id}/item_analysis`)),
+  // 成绩导出（xlsx 二进制流，带鉴权头）
+  exportResults: id => api.get(`/exams/${id}/results/export`, { responseType: 'blob' })
 }
 
 /* ================= 学生考试流程 ================= */
@@ -134,7 +142,13 @@ export const resultAPI = {
     dataOf(api.get(`/results/grading/${examId}/${studentId}`)),
   manualGrade: (examId, studentId, data) =>
     dataOf(api.post(`/results/grading/${examId}/${studentId}`, data)),
-  analysis: examId => dataOf(api.get(`/results/analysis/${examId}`))
+  analysis: examId => dataOf(api.get(`/results/analysis/${examId}`)),
+  // ==== M6 申诉 / 聚类批注 / 同题批量给分 ====
+  requestReview: (resultId, data) => dataOf(api.post(`/results/${resultId}/review`, data)),
+  handleReview: (resultId, data) => dataOf(api.post(`/results/${resultId}/review_handle`, data)),
+  gradingCluster: examId => dataOf(api.get(`/results/grading/${examId}/cluster`)),
+  batchGradeQuestion: (examId, data) =>
+    dataOf(api.post(`/results/grading/${examId}/question_batch`, data))
 }
 
 /* ================= 通知 / 日志 / 上传（当前页面未使用，预留） ================= */

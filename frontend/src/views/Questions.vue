@@ -63,6 +63,12 @@
         <el-form-item label="题目内容">
           <el-input v-model="form.content" type="textarea" :rows="3" />
         </el-form-item>
+        <el-form-item label="共享材料">
+          <el-input v-model="form.material" type="textarea" :rows="2" placeholder="可选：材料题共用的阅读材料/题干背景" />
+        </el-form-item>
+        <el-form-item label="材料分组">
+          <el-input v-model="form.materialGroup" placeholder="可选：同组标识，相同分组的题目共享上方材料" />
+        </el-form-item>
         <el-form-item label="学科">
           <el-select v-model="form.majorId" style="width: 100%;">
             <el-option v-for="m in majors" :key="m.id" :label="m.name" :value="m.id" />
@@ -246,7 +252,7 @@ const showModal = ref(false)
 const showGenerate = ref(false)
 const genLoading = ref(false)
 const editing = ref(false)
-const form = reactive({ id: null, content: '', majorId: null, type: 'single_choice', difficulty: 'medium', options: ['', '', '', ''], answer: '', analysis: '' })
+const form = reactive({ id: null, content: '', majorId: null, type: 'single_choice', difficulty: 'medium', options: ['', '', '', ''], answer: '', analysis: '', material: '', materialGroup: '' })
 const genForm = reactive({ major: '', type: 'single_choice', difficulty: 'medium', keywords: '', hint: '', count: 1 })
 const genActiveTab = ref('config')
 const genQuestions = ref([])
@@ -276,13 +282,13 @@ async function load() {
 
 function openCreate() {
   editing.value = false
-  Object.assign(form, { id: null, content: '', majorId: majors.value[0]?.id || null, type: 'single_choice', difficulty: 'medium', options: ['', '', '', ''], answer: '', analysis: '' })
+  Object.assign(form, { id: null, content: '', majorId: majors.value[0]?.id || null, type: 'single_choice', difficulty: 'medium', options: ['', '', '', ''], answer: '', analysis: '', material: '', materialGroup: '' })
   showModal.value = true
 }
 
 function openEdit(row) {
   editing.value = true
-  Object.assign(form, { id: row.id, content: row.content, majorId: row.majorId, type: row.type, difficulty: row.difficulty, options: (row.options && row.options.length) ? [...row.options] : ['', '', '', ''], answer: row.answer || '', analysis: row.analysis || '' })
+  Object.assign(form, { id: row.id, content: row.content, majorId: row.majorId, type: row.type, difficulty: row.difficulty, options: (row.options && row.options.length) ? [...row.options] : ['', '', '', ''], answer: row.answer || '', analysis: row.analysis || '', material: row.material || '', materialGroup: row.materialGroup || '' })
   showModal.value = true
 }
 
@@ -296,6 +302,8 @@ async function submit() {
       difficulty: form.difficulty,
       answer: form.answer,
       analysis: form.analysis,
+      material: form.material || null,
+      materialGroup: form.materialGroup || null,
       options: hasOptions.value ? form.options.filter(o => o !== '') : null
     }
     if (editing.value) await questionAPI.update(form.id, data)

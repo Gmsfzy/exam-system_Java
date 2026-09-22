@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Exam System API (Spring Boot)",
-    "description": "智汇学场（Spring Boot）后端 API 全集：考试 + 竞赛/竞技化 + 征集悬赏 + 自主学习（v4.0）。使用方法：1) 先运行【01-认证】中的「登录-教师」「登录-学生」自动写入 token；2) 按文件夹顺序调用。默认账号 teacher/123123、student1/123123。",
+    "description": "智汇学场（Spring Boot）后端 API 全集：考试 + 竞赛/竞技化 + 征集悬赏 + 自主学习（v4.0）；16-考务升级为 M6 新增端点（发布成绩/补考授权/监考/导出/试题分析/AI 质检/申诉/聚类/批量给分）。使用方法：1) 先运行【01-认证】中的「登录-教师」「登录-学生」自动写入 token；2) 按文件夹顺序调用。默认账号 teacher/123123、student1/123123。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -13,6 +13,7 @@
     { "key": "newQuestionId", "value": "" },
     { "key": "newExamId", "value": "" },
     { "key": "studentId", "value": "2" },
+    { "key": "resultId", "value": "1" },
     { "key": "invitationCode", "value": "TEST1234" },
     { "key": "notificationId", "value": "1" },
     { "key": "competitionId", "value": "" },
@@ -279,6 +280,27 @@
         { "name": "学习计划", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/learning/plans", "host": ["{{baseUrl}}"], "path": ["api", "learning", "plans"] } } },
         { "name": "学习报告概览", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/learning/report/overview", "host": ["{{baseUrl}}"], "path": ["api", "learning", "report", "overview"] } } },
         { "name": "AI 答疑", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": { "raw": "{{baseUrl}}/api/learning/ask", "host": ["{{baseUrl}}"], "path": ["api", "learning", "ask"] }, "body": { "mode": "raw", "raw": "{\n  \"question\": \"请解释一下进程和线程的区别\"\n}" } } }
+      ]
+    },
+    {
+      "name": "16-考务升级（M6）",
+      "item": [
+        {
+          "name": "创建考试（含 M6 考务配置，保存 newExamId）",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [ "const res = pm.response.json();", "if (res.data && res.data.id) pm.collectionVariables.set('newExamId', res.data.id);" ] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": { "raw": "{{baseUrl}}/api/exams", "host": ["{{baseUrl}}"], "path": ["api", "exams"] },
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"M6 考务测试考试\",\n  \"description\": \"多轮次/随机卷/选项乱序/不自动发布\",\n  \"startTime\": \"2026-09-20 09:00:00\",\n  \"endTime\": \"2026-09-20 11:00:00\",\n  \"duration\": 60,\n  \"resultsPublished\": false,\n  \"maxAttempts\": 2,\n  \"scoreStrategy\": \"best\",\n  \"paperMode\": \"random\",\n  \"randomCount\": 0,\n  \"shuffleOptions\": true,\n  \"multiScoreRule\": \"partial\",\n  \"anonymousGrading\": true\n}" } }
+        },
+        { "name": "发布成绩（解除门控 + 批量通知）", "request": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/api/exams/{{newExamId}}/publish_results", "host": ["{{baseUrl}}"], "path": ["api", "exams", "{{newExamId}}", "publish_results"] } } },
+        { "name": "补考授权（上调 maxAttempts）", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": { "raw": "{{baseUrl}}/api/exams/{{newExamId}}/grant_attempt", "host": ["{{baseUrl}}"], "path": ["api", "exams", "{{newExamId}}", "grant_attempt"] }, "body": { "mode": "raw", "raw": "{\n  \"studentId\": {{studentId}},\n  \"extraAttempts\": 1\n}" } } },
+        { "name": "实时监考（逐人轮询视图）", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/exams/{{newExamId}}/monitor", "host": ["{{baseUrl}}"], "path": ["api", "exams", "{{newExamId}}", "monitor"] } } },
+        { "name": "试题分析（得分率/区分度/干扰项）", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/exams/{{newExamId}}/item_analysis", "host": ["{{baseUrl}}"], "path": ["api", "exams", "{{newExamId}}", "item_analysis"] } } },
+        { "name": "AI 试卷质检（需 DOUBAN_API_KEY，3/min 限流）", "request": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/api/exams/{{newExamId}}/ai_inspect", "host": ["{{baseUrl}}"], "path": ["api", "exams", "{{newExamId}}", "ai_inspect"] } } },
+        { "name": "成绩导出 xlsx（流下载）", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/exams/{{newExamId}}/results/export", "host": ["{{baseUrl}}"], "path": ["api", "exams", "{{newExamId}}", "results", "export"] } } },
+        { "name": "学生-发起成绩申诉", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{studentToken}}", "type": "string" }] }, "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": { "raw": "{{baseUrl}}/api/results/{{resultId}}/review", "host": ["{{baseUrl}}"], "path": ["api", "results", "{{resultId}}", "review"] }, "body": { "mode": "raw", "raw": "{\n  \"reason\": \"第 5 题答案应判对，请复核\"\n}" } } },
+        { "name": "教师-处理申诉（approve/reject）", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": { "raw": "{{baseUrl}}/api/results/{{resultId}}/review_handle", "host": ["{{baseUrl}}"], "path": ["api", "results", "{{resultId}}", "review_handle"] }, "body": { "mode": "raw", "raw": "{\n  \"action\": \"approve\",\n  \"newScore\": 88,\n  \"reply\": \"复核属实，已调整成绩\"\n}" } } },
+        { "name": "教师-未批主观题聚类", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/results/grading/{{examId}}/cluster", "host": ["{{baseUrl}}"], "path": ["api", "results", "grading", "{{examId}}", "cluster"] } } },
+        { "name": "教师-同题批量给分", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": { "raw": "{{baseUrl}}/api/results/grading/{{examId}}/question_batch", "host": ["{{baseUrl}}"], "path": ["api", "results", "grading", "{{examId}}", "question_batch"] }, "body": { "mode": "raw", "raw": "{\n  \"questionId\": {{questionId}},\n  \"score\": 6,\n  \"comment\": \"要点齐全，统一给分\"\n}" } } }
       ]
     }
   ]

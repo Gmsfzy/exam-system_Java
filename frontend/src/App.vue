@@ -129,7 +129,16 @@ const role = computed(() => auth.currentUser?.role)
 const menuItems = computed(() => {
   const m = currentModule.value
   if (!m) return []
-  return MODULES[m].menu.filter(x => !x.roles || x.roles.includes(role.value))
+  let base = MODULES[m].menu.filter(x => !x.roles || x.roles.includes(role.value))
+  // M6：处于某场考试上下文时，动态插入「监考」「分析」入口
+  const examId = route.params.id
+  if (m === 'exam' && examId && role.value === 'teacher') {
+    base = base.concat([
+      { to: '/exams/' + examId + '/monitor', label: '实时监考' },
+      { to: '/exams/' + examId + '/analysis', label: '试题分析' }
+    ])
+  }
+  return base
 })
 const activeMenu = computed(() => route.path)
 

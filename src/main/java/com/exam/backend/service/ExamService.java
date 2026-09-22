@@ -2,23 +2,49 @@ package com.exam.backend.service;
 
 import com.exam.backend.common.exception.BusinessException;
 import com.exam.backend.common.exception.ErrorCode;
+import com.exam.backend.domain.entity.Answer;
 import com.exam.backend.domain.entity.Exam;
 import com.exam.backend.domain.entity.ExamQuestion;
+import com.exam.backend.domain.entity.ExamSession;
+import com.exam.backend.domain.entity.ExamStudent;
 import com.exam.backend.domain.entity.Question;
+import com.exam.backend.domain.entity.Result;
+import com.exam.backend.domain.entity.User;
 import com.exam.backend.domain.enums.ExamStatusEnum;
+import com.exam.backend.domain.enums.SessionStatusEnum;
+import com.exam.backend.dto.AiDto;
 import com.exam.backend.dto.ExamDto;
+import com.exam.backend.repository.AnswerRepository;
 import com.exam.backend.repository.ExamQuestionRepository;
 import com.exam.backend.repository.ExamRepository;
+import com.exam.backend.repository.ExamSessionRepository;
+import com.exam.backend.repository.ExamStudentRepository;
 import com.exam.backend.repository.QuestionRepository;
+import com.exam.backend.repository.ResultRepository;
+import com.exam.backend.repository.UserRepository;
 import com.exam.backend.util.TimeZoneUtil;
 import lombok.RequiredArgsConstructor;
+import org.apache.poi.xssf.usermodel.XSSFRow;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayOutputStream;
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,6 +54,13 @@ public class ExamService {
     private final ExamRepository examRepository;
     private final ExamQuestionRepository examQuestionRepository;
     private final QuestionRepository questionRepository;
+    private final ExamStudentRepository examStudentRepository;
+    private final ExamSessionRepository examSessionRepository;
+    private final AnswerRepository answerRepository;
+    private final ResultRepository resultRepository;
+    private final UserRepository userRepository;
+    private final NotificationService notificationService;
+    private final AiService aiService;
 
     @Transactional(readOnly = true)
     public List<ExamDto.ExamResponse> listForTeacher(Long creatorId) {
@@ -45,7 +78,10 @@ public class ExamService {
                     e.getStartTime(), e.getEndTime(), e.getDuration(),
                     e.getStatus(), e.getCreatorId(),
                     null, null,
-                    e.getCreatedAt());
+                    e.getCreatedAt(),
+                    e.resultsPublishedEffective(), e.maxAttemptsEffective(), e.scoreStrategyEffective(),
+                    e.paperModeEffective(), e.getRandomCount(), e.shuffleOptionsEffective(),
+                    e.multiScoreRuleEffective(), e.anonymousGradingEffective());
         }
         return toResponse(e);
     }
@@ -60,6 +96,14 @@ public class ExamService {
                 .duration(req.duration())
                 .status(ExamStatusEnum.draft)
                 .creatorId(creatorId)
+                .resultsPublished(req.resultsPublished() == null || req.resultsPublished())
+                .maxAttempts(req.maxAttempts())
+                .scoreStrategy(req.scoreStrategy())
+                .paperMode(req.paperMode())
+                .randomCount(req.randomCount())
+                .shuffleOptions(req.shuffleOptions())
+                .multiScoreRule(req.multiScoreRule())
+                .anonymousGrading(req.anonymousGrading())
                 .build();
         examRepository.save(e);
         return toResponse(e);
@@ -76,6 +120,15 @@ public class ExamService {
         if (req.startTime() != null) e.setStartTime(TimeZoneUtil.fromInput(req.startTime()));
         if (req.endTime() != null) e.setEndTime(TimeZoneUtil.fromInput(req.endTime()));
         if (req.duration() != null) e.setDuration(req.duration());
+        // M6 考务配置：传啥改啥，null 保持原值（补考授权会抬高 maxAttempts）
+        if (req.resultsPublished() != null) e.setResultsPublished(req.resultsPublished());
+        if (req.maxAttempts() != null) e.setMaxAttempts(Math.max(1, req.maxAttempts()));
+        if (req.scoreStrategy() != null) e.setScoreStrategy(req.scoreStrategy());
+        if (req.paperMode() != null) e.setPaperMode(req.paperMode());
+        if (req.randomCount() != null) e.setRandomCount(Math.max(0, req.randomCount()));
+        if (req.shuffleOptions() != null) e.setShuffleOptions(req.shuffleOptions());
+        if (req.multiScoreRule() != null) e.setMultiScoreRule(req.multiScoreRule());
+        if (req.anonymousGrading() != null) e.setAnonymousGrading(req.anonymousGrading());
         return toResponse(e);
     }
 
@@ -253,6 +306,244 @@ public class ExamService {
                 e.getStartTime(), e.getEndTime(), e.getDuration(),
                 e.getStatus(), e.getCreatorId(),
                 e.getInvitationCode(), e.getInvitationUrl(),
-                e.getCreatedAt());
+                e.getCreatedAt(),
+                e.resultsPublishedEffective(), e.maxAttemptsEffective(), e.scoreStrategyEffective(),
+                e.paperModeEffective(), e.getRandomCount(), e.shuffleOptionsEffective(),
+                e.multiScoreRuleEffective(), e.anonymousGradingEffective());
+    }
+
+    // ==== M6 考务管理：发布成绩 / 补考授权 / 监考 / 导出 / 试题分析 / AI 质检 ====
+
+    /** 统一发布成绩：置 resultsPublished=true 并逐个通知已交卷学生 */
+    @Transactional
+    public ExamDto.PublishResultsResponse publishResults(Long examId, Long currentUserId) {
+        Exam e = requireOwned(examId, currentUserId);
+        e.setResultsPublished(true);
+        examRepository.save(e);
+        int notified = 0;
+        for (ExamStudent es : examStudentRepository.findByExamId(examId)) {
+            Result r = resultRepository
+                    .findEffective(examId, es.getStudentId(), e.scoreStrategyEffective()).orElse(null);
+            if (r == null) continue;
+            try {
+                notificationService.notifyResultPublished(es.getStudentId(), examId, e.getTitle(), r.getScore());
+                notified++;
+            } catch (Exception ex) {
+                org.slf4j.LoggerFactory.getLogger(ExamService.class)
+                        .warn("publish notify failed student={}: {}", es.getStudentId(), ex.getMessage());
+            }
+        }
+        return new ExamDto.PublishResultsResponse(examId, true, notified);
+    }
+
+    /** 补考授权：上调考试总次数上限（受 maxAttempts 总上限语义约束） */
+    @Transactional
+    public ExamDto.GrantAttemptResponse grantAttempt(Long examId, ExamDto.GrantAttemptRequest req, Long currentUserId) {
+        Exam e = requireOwned(examId, currentUserId);
+        int extra = req.extraAttempts() == null || req.extraAttempts() < 1 ? 1 : req.extraAttempts();
+        if (!examStudentRepository.existsByExamIdAndStudentId(examId, req.studentId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "该学生未参加本场考试");
+        }
+        int ceiling = Math.max(e.maxAttemptsEffective(), 100);
+        int next = Math.min(e.maxAttemptsEffective() + extra, ceiling);
+        e.setMaxAttempts(next);
+        examRepository.save(e);
+        return new ExamDto.GrantAttemptResponse(examId, req.studentId(), next);
+    }
+
+    /** 实时监考：逐人最新会话状态/已答数/总题数/切屏/会话得分（轮询友好） */
+    @Transactional(readOnly = true)
+    public List<ExamDto.MonitorRow> monitor(Long examId, Long currentUserId) {
+        Exam e = requireOwned(examId, currentUserId);
+        List<ExamQuestion> eqs = examQuestionRepository.findByExamIdOrderByOrderAsc(examId);
+        Map<Long, List<ExamSession>> sessionsByStudent = new HashMap<>();
+        for (ExamSession s : examSessionRepository.findByExamId(examId)) {
+            sessionsByStudent.computeIfAbsent(s.getStudentId(), k -> new ArrayList<>()).add(s);
+        }
+        List<ExamDto.MonitorRow> rows = new ArrayList<>();
+        for (ExamStudent es : examStudentRepository.findByExamId(examId)) {
+            Long sid = es.getStudentId();
+            ExamSession latest = sessionsByStudent.getOrDefault(sid, List.of()).stream()
+                    .max(Comparator.comparing(ExamSession::getId)).orElse(null);
+            int total = latest != null && latest.getAssignedQuestionIds() != null
+                    && !latest.getAssignedQuestionIds().isEmpty()
+                    ? latest.getAssignedQuestionIds().size() : eqs.size();
+            int answered = 0;
+            if (latest != null) {
+                answered = (int) answerRepository.findBySessionId(latest.getId()).stream()
+                        .filter(a -> a.getStudentAnswer() != null && !a.getStudentAnswer().isBlank())
+                        .count();
+            }
+            rows.add(new ExamDto.MonitorRow(sid,
+                    userRepository.findById(sid).map(User::getUsername).orElse(null),
+                    latest == null ? null : latest.attemptNoEffective(),
+                    latest == null ? "not_started" : latest.getStatus().name(),
+                    answered, total,
+                    latest == null ? 0 : latest.getSwitchCount(),
+                    latest == null ? null : latest.getScore(),
+                    latest == null ? null : latest.getStartTime()));
+        }
+        return rows;
+    }
+
+    /** 成绩Excel导出：考生 + 逐题得分 + 总分 */
+    @Transactional(readOnly = true)
+    public byte[] exportResultsExcel(Long examId, Long currentUserId) {
+        Exam e = requireOwned(examId, currentUserId);
+        List<ExamQuestion> eqs = examQuestionRepository.findByExamIdOrderByOrderAsc(examId);
+        List<ExamSession> sessions = new ArrayList<>();
+        sessions.addAll(examSessionRepository.findByExamIdAndStatus(examId, SessionStatusEnum.submitted));
+        sessions.addAll(examSessionRepository.findByExamIdAndStatus(examId, SessionStatusEnum.auto_submitted));
+        Map<Long, ExamSession> latestByStudent = new HashMap<>();
+        for (ExamSession s : sessions) {
+            latestByStudent.merge(s.getStudentId(), s,
+                    (a, b) -> b.getId() > a.getId() ? b : a);
+        }
+        try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+            XSSFSheet sheet = wb.createSheet("成绩");
+            XSSFRow head = sheet.createRow(0);
+            String[] fixed = {"考生", "轮次"};
+            for (int i = 0; i < fixed.length; i++) head.createCell(i).setCellValue(fixed[i]);
+            for (int i = 0; i < eqs.size(); i++) {
+                head.createCell(2 + i).setCellValue("第" + (i + 1) + "题");
+            }
+            head.createCell(2 + eqs.size()).setCellValue("总分");
+            List<Long> sids = latestByStudent.keySet().stream().sorted().toList();
+            Map<Long, List<Answer>> answersBySession = sids.isEmpty() ? Map.of()
+                    : answerRepository.findBySessionIdIn(
+                            latestByStudent.values().stream().map(ExamSession::getId).toList()).stream()
+                            .collect(Collectors.groupingBy(Answer::getSessionId));
+            int rowIdx = 1;
+            for (Long stuId : sids) {
+                ExamSession sess = latestByStudent.get(stuId);
+                Map<Long, Answer> byQ = answersBySession.getOrDefault(sess.getId(), List.of()).stream()
+                        .collect(Collectors.toMap(Answer::getQuestionId, Function.identity(), (a, b) -> a));
+                XSSFRow row = sheet.createRow(rowIdx++);
+                row.createCell(0).setCellValue(userRepository.findById(stuId)
+                        .map(User::getUsername).orElse("#" + stuId));
+                row.createCell(1).setCellValue(sess.attemptNoEffective());
+                for (int i = 0; i < eqs.size(); i++) {
+                    Answer a = byQ.get(eqs.get(i).getQuestionId());
+                    if (a != null && a.effectiveScore() != null) {
+                        row.createCell(2 + i).setCellValue(a.effectiveScore());
+                    }
+                }
+                resultRepository.findBySessionId(sess.getId()).stream()
+                        .reduce((x, y) -> y).ifPresent(r ->
+                                row.createCell(2 + eqs.size()).setCellValue(r.getScore() == null ? 0 : r.getScore()));
+            }
+            wb.write(bos);
+            return bos.toByteArray();
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.BUSINESS_ERROR, "导出失败: " + ex.getMessage());
+        }
+    }
+
+    /** M6 试题分析：逐题得分率 / 区分度(高前27%减低后27%得分率) / 干扰项选择率 */
+    @Transactional(readOnly = true)
+    public List<ExamDto.ItemAnalysisRow> itemAnalysis(Long examId, Long currentUserId) {
+        Exam e = requireOwned(examId, currentUserId);
+        List<ExamQuestion> eqs = examQuestionRepository.findByExamIdOrderByOrderAsc(examId);
+        if (eqs.isEmpty()) return List.of();
+        List<ExamSession> sessions = new ArrayList<>();
+        sessions.addAll(examSessionRepository.findByExamIdAndStatus(examId, SessionStatusEnum.submitted));
+        sessions.addAll(examSessionRepository.findByExamIdAndStatus(examId, SessionStatusEnum.auto_submitted));
+        Map<Long, ExamSession> latestByStudent = new HashMap<>();
+        for (ExamSession s : sessions) {
+            latestByStudent.merge(s.getStudentId(), s, (a, b) -> b.getId() > a.getId() ? b : a);
+        }
+        if (latestByStudent.isEmpty()) return List.of();
+        List<Long> sessionIds = latestByStudent.values().stream().map(ExamSession::getId).toList();
+        Map<Long, List<Answer>> answersBySession = answerRepository.findBySessionIdIn(sessionIds).stream()
+                .collect(Collectors.groupingBy(Answer::getSessionId));
+        // 学生总分（按最新会话）用于分组
+        Map<Long, Double> totalBySession = new HashMap<>();
+        for (Map.Entry<Long, ExamSession> en : latestByStudent.entrySet()) {
+            ExamSession s = en.getValue();
+            double tot = s.getScore() != null ? s.getScore()
+                    : answersBySession.getOrDefault(s.getId(), List.of()).stream()
+                    .map(Answer::effectiveScore).filter(Objects::nonNull)
+                    .mapToDouble(Double::doubleValue).sum();
+            totalBySession.put(s.getId(), tot);
+        }
+        List<Long> sortedSessions = totalBySession.entrySet().stream()
+                .sorted(Map.Entry.<Long, Double>comparingByValue().reversed())
+                .map(Map.Entry::getKey).toList();
+        int n = sortedSessions.size();
+        int group = Math.max(1, (int) Math.round(n * 0.27));
+        Set<Long> high = new HashSet<>(sortedSessions.subList(0, Math.min(group, n)));
+        Set<Long> low = new HashSet<>(sortedSessions.subList(Math.max(0, n - group), n));
+        List<Long> qids = eqs.stream().map(ExamQuestion::getQuestionId).toList();
+        Map<Long, Question> qmap = questionRepository.findAllById(qids).stream()
+                .collect(Collectors.toMap(Question::getId, Function.identity()));
+
+        List<ExamDto.ItemAnalysisRow> out = new ArrayList<>();
+        int order = 0;
+        for (ExamQuestion eq : eqs) {
+            order++;
+            Question q = qmap.get(eq.getQuestionId());
+            double max = eq.getScore() == null ? 0 : eq.getScore();
+            int answerCount = 0;
+            double scoreSum = 0;
+            int highGot = 0, lowGot = 0, highN = 0, lowN = 0;
+            Map<String, Integer> pickCount = new LinkedHashMap<>();
+            List<String> letters = new ArrayList<>();
+            if (q != null && q.getOptions() != null) {
+                for (int i = 0; i < q.getOptions().size(); i++) letters.add(String.valueOf((char) ('A' + i)));
+            }
+            letters.forEach(l -> pickCount.put(l, 0));
+            for (Map.Entry<Long, ExamSession> en : latestByStudent.entrySet()) {
+                Answer a = answersBySession.getOrDefault(en.getValue().getId(), List.of()).stream()
+                        .filter(x -> x.getQuestionId().equals(eq.getQuestionId()))
+                        .findFirst().orElse(null);
+                if (a == null || a.getStudentAnswer() == null || a.getStudentAnswer().isBlank()) continue;
+                answerCount++;
+                double got = a.effectiveScore() == null || max == 0 ? 0 : a.effectiveScore();
+                scoreSum += got;
+                boolean picked = got > 0;
+                if (high.contains(en.getValue().getId())) { highN++; if (picked) highGot++; }
+                if (low.contains(en.getValue().getId())) { lowN++; if (picked) lowGot++; }
+                for (String token : a.getStudentAnswer().toUpperCase().split("[,，;；\\s]+")) {
+                    String t = token.trim();
+                    if (pickCount.containsKey(t)) pickCount.merge(t, 1, Integer::sum);
+                }
+            }
+            double scoreRate = answerCount == 0 || max == 0 ? 0 : scoreSum / (max * answerCount);
+            double disc = highN == 0 || lowN == 0 ? 0 : (double) highGot / highN - (double) lowGot / lowN;
+            List<Map<String, Object>> distractors = new ArrayList<>();
+            Set<String> correctSet = new HashSet<>();
+            if (q != null && q.getAnswer() != null) {
+                for (String s : q.getAnswer().toUpperCase().split("[,，;；\\s]+")) {
+                    if (!s.isBlank()) correctSet.add(s.trim());
+                }
+            }
+            for (Map.Entry<String, Integer> de : pickCount.entrySet()) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("option", de.getKey());
+                m.put("rate", answerCount == 0 ? 0 : (double) de.getValue() / answerCount);
+                m.put("isCorrect", correctSet.contains(de.getKey()));
+                distractors.add(m);
+            }
+            out.add(new ExamDto.ItemAnalysisRow(eq.getQuestionId(), order,
+                    q == null ? null : q.getContent(),
+                    q == null ? null : q.getType().name(),
+                    max, answerCount,
+                    Math.round(scoreRate * 1000) / 1000.0,
+                    Math.round(disc * 1000) / 1000.0,
+                    distractors));
+        }
+        return out;
+    }
+
+    /** M6 AI 试卷质检（限流由现有 AI 路径统一覆盖） */
+    public AiDto.AiInspectResponse aiInspect(Long examId, Long currentUserId) {
+        Exam e = requireOwned(examId, currentUserId);
+        List<Long> qids = examQuestionRepository.findByExamIdOrderByOrderAsc(examId).stream()
+                .map(ExamQuestion::getQuestionId).toList();
+        if (qids.isEmpty()) {
+            throw new BusinessException(ErrorCode.BUSINESS_ERROR, "考试无题目");
+        }
+        List<Question> qs = questionRepository.findAllById(qids);
+        return aiService.inspectExam(e.getTitle(), qs);
     }
 }

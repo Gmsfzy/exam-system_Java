@@ -22,6 +22,14 @@ public interface ExamSessionRepository extends JpaRepository<ExamSession, Long> 
 
     List<ExamSession> findByExamIdAndStatus(Long examId, SessionStatusEnum status);
 
+    List<ExamSession> findByExamId(Long examId);
+
+    /** M6 多轮次：同一考试+学生的全部会话（按轮次先后） */
+    List<ExamSession> findByExamIdAndStudentId(Long examId, Long studentId);
+
+    /** M6 多轮次：取指定状态下最新一条（多轮 submitted 时避免 Optional 招异常） */
+    Optional<ExamSession> findFirstByExamIdAndStudentIdOrderByStartTimeDescIdDesc(Long examId, Long studentId);
+
     List<ExamSession> findByStudentId(Long studentId);
 
     List<ExamSession> findByStatusAndExamIdIn(SessionStatusEnum status, List<Long> examIds);

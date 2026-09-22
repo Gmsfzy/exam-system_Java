@@ -133,7 +133,9 @@ public class SubjectiveGradingService {
 
     /** 重算 Result 得分与判分标志；若无待判题则发“成绩公布”通知并推送 result_ready */
     private void finalizeGradedResult(Long examId, Long studentId, Long sessionId) {
-        Result result = resultRepository.findByExamIdAndStudentId(examId, studentId).orElse(null);
+        // M6 多轮次：按会话回写当轮成绩，避免误改其它轮次
+        Result result = resultRepository.findBySessionId(sessionId).stream()
+                .reduce((first, second) -> second).orElse(null);
         if (result == null) return;
 
         List<Answer> answers = answerRepository.findBySessionId(sessionId);
@@ -147,12 +149,23 @@ public class SubjectiveGradingService {
         result.setScore(com.exam.backend.service.competition.ScoringService.round2(total));
         result.setGrading(pending > 0);
         resultRepository.save(result);
+        // 同步会话得分快照
+        examSessionRepository.findById(sessionId).ifPresent(s -> {
+            s.setScore(result.getScore());
+            examSessionRepository.save(s);
+        });
 
         if (pending == 0) {
             Exam exam = examRepository.findById(examId).orElse(null);
             String title = exam == null ? ("#" + examId) : exam.getTitle();
             try {
-                notificationService.notifyResultPublished(studentId, examId, title, result.getScore());
+                if (exam == null || exam.resultsPublishedEffective()) {
+                    notificationService.notifyResultPublished(studentId, examId, title, result.getScore());
+                } else {
+                    notificationService.create(studentId, "评分完成",
+                            "您的考试 " + title + " 已完成评分，成绩待教师公布后查看。",
+                            com.exam.backend.domain.enums.NotificationTypeEnum.info, "result", examId);
+                }
             } catch (Exception e) {
                 log.warn("notify result published failed exam={} student={}: {}", examId, studentId, e.getMessage());
             }

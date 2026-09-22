@@ -18,8 +18,13 @@
     <el-card style="margin-bottom: 20px;">
       <el-descriptions :column="2" border>
         <el-descriptions-item v-if="isTeacher" label="学生">{{ result.studentName }}</el-descriptions-item>
+        <el-descriptions-item label="轮次">第 {{ result.attemptNo || 1 }} 次</el-descriptions-item>
         <el-descriptions-item label="成绩">
-          <strong :style="{ fontSize: '18px', color: scoreColor }">
+          <span v-if="result.published === false" style="color: #e6a23c;">
+            <el-tag size="small" type="warning">未发布</el-tag>
+            <span style="margin-left: 6px;">成绩尚未公布</span>
+          </span>
+          <strong v-else :style="{ fontSize: '18px', color: scoreColor }">
             {{ result.score }} / {{ result.totalScore }}
             <span style="font-size: 13px; color: #909399; margin-left: 8px;">
               ({{ pct }}%)
@@ -31,6 +36,33 @@
           <div style="white-space: pre-wrap;">{{ result.aiAnalysis }}</div>
         </el-descriptions-item>
       </el-descriptions>
+    </el-card>
+
+    <!-- 申诉 / 复核区 -->
+    <el-card v-if="showReviewCard" style="margin-bottom: 20px;">
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <strong>成绩申诉</strong>
+        <el-tag size="small" :type="reviewType">{{ reviewLabel }}</el-tag>
+      </div>
+      <div v-if="result.reviewReason" style="margin-top: 10px; color: var(--ink-2);">申诉理由：{{ result.reviewReason }}</div>
+      <div v-if="result.reviewReply" style="margin-top: 6px; color: #67c23a;">教师回复：{{ result.reviewReply }}</div>
+
+      <!-- 学生：发起申诉 -->
+      <div v-if="!isTeacher && canStudentReview" style="margin-top: 12px;">
+        <el-input v-model="reviewReason" type="textarea" :rows="2" placeholder="请说明申诉理由（如判分有误）" style="margin-bottom: 8px;" />
+        <el-button type="primary" size="small" :loading="reviewing" @click="submitReview">提交申诉</el-button>
+      </div>
+
+      <!-- 教师：处理待审申诉 -->
+      <div v-if="isTeacher && result.reviewStatus === 'pending'" style="margin-top: 12px;">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+          <span>改后总分：</span>
+          <el-input-number v-model="handleScore" :min="0" :max="result.totalScore || 100" size="small" />
+          <el-input v-model="handleReply" placeholder="处理回复" size="small" style="flex: 1; min-width: 200px;" />
+        </div>
+        <el-button type="success" size="small" :loading="reviewing" @click="handleReview('approve')">批准并改分</el-button>
+        <el-button type="info" size="small" :loading="reviewing" @click="handleReview('reject')">驳回</el-button>
+      </div>
     </el-card>
 
     <h3 style="margin-bottom: 12px;">答题详情</h3>
@@ -90,6 +122,11 @@ const result = ref(null)
 const savingId = ref(null)
 let pollTimer = null
 const isTeacher = computed(() => authStore.currentUser?.role === 'teacher')
+// M6 申诉状态
+const reviewing = ref(false)
+const reviewReason = ref('')
+const handleScore = ref(0)
+const handleReply = ref('')
 const pct = computed(() => {
   if (!result.value || !result.value.totalScore) return '0.0'
   return ((result.value.score / result.value.totalScore) * 100).toFixed(1)
@@ -97,6 +134,21 @@ const pct = computed(() => {
 const scoreColor = computed(() => {
   if (!result.value) return '#303133'
   return result.value.score / result.value.totalScore >= 0.6 ? '#67c23a' : '#f56c6c'
+})
+const reviewLabel = computed(() => ({ pending: '申诉中', approved: '已改分', rejected: '申诉驳回' }[result.value?.reviewStatus] || '可申诉'))
+const reviewType = computed(() => ({ pending: 'warning', approved: 'success', rejected: 'info' }[result.value?.reviewStatus] || ''))
+// 学生仅当成绩已发布且未在申诉/未驳回时（驳回后可再次申诉）发起
+const canStudentReview = computed(() => {
+  const r = result.value
+  if (!r || r.published === false || r.grading) return false
+  return !r.reviewStatus || r.reviewStatus === 'none' || r.reviewStatus === 'rejected'
+})
+// 申诉卡片展示：已有申诉状态，或学生可发起，或教师待处理
+const showReviewCard = computed(() => {
+  const r = result.value
+  if (!r) return false
+  if (isTeacher.value) return r.reviewStatus && r.reviewStatus !== 'none'
+  return r.published !== false && (canStudentReview.value || (r.reviewStatus && r.reviewStatus !== 'none'))
 })
 
 onMounted(load)
@@ -116,9 +168,44 @@ async function load() {
       })
     }
     result.value = r
+    handleScore.value = r.score != null ? r.score : 0
     schedulePoll(r.grading)
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '加载失败')
+  }
+}
+
+async function submitReview() {
+  if (!reviewReason.value.trim()) { ElMessage.warning('请填写申诉理由'); return }
+  reviewing.value = true
+  try {
+    await resultAPI.requestReview(route.params.id, { reason: reviewReason.value })
+    ElMessage.success('申诉已提交，请等待教师处理')
+    reviewReason.value = ''
+    await load()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '申诉提交失败')
+  } finally {
+    reviewing.value = false
+  }
+}
+
+async function handleReview(action) {
+  if (action === 'approve' && handleScore.value == null) { ElMessage.warning('请填写改后总分'); return }
+  reviewing.value = true
+  try {
+    await resultAPI.handleReview(route.params.id, {
+      action,
+      newScore: action === 'approve' ? handleScore.value : null,
+      reply: handleReply.value
+    })
+    ElMessage.success(action === 'approve' ? '已批准并改分' : '已驳回申诉')
+    handleReply.value = ''
+    await load()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.message || '处理失败')
+  } finally {
+    reviewing.value = false
   }
 }
 

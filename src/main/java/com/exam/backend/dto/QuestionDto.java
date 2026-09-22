@@ -22,14 +22,18 @@ public class QuestionDto {
             Long majorId,
             Long courseId,
             Long chapterId,
-            Boolean isPublic) {}
+            Boolean isPublic,
+            // M6 材料题：同组题目共享阅读材料
+            String material,
+            String materialGroup) {}
 
     /** 教师组卷视图：含 answer/analysis */
     public record QuestionResponse(
             Long id, String content, List<String> options, String answer, String analysis,
             String knowledge, QuestionTypeEnum type, DifficultyEnum difficulty,
             String source, Long creatorId, Boolean isPublic,
-            Long majorId, Long courseId, Long chapterId, LocalDateTime createdAt) {}
+            Long majorId, Long courseId, Long chapterId, LocalDateTime createdAt,
+            String material, String materialGroup) {}
 
     /** 学生答题视图：去除 answer/analysis */
     public record QuestionStudentView(

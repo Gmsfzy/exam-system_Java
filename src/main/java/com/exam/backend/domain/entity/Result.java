@@ -38,4 +38,33 @@ public class Result extends BaseEntity {
     @Column(name = "grading")
     @Builder.Default
     private Boolean grading = false;
+
+    // ==== M6 成绩归属与申诉字段 ====
+
+    /** 成绩来源会话（多轮次时对应最新/最优一轮） */
+    @Column(name = "session_id")
+    private Long sessionId;
+
+    /** 申诉状态：none / pending / approved / rejected */
+    @Column(name = "review_status", length = 16)
+    @Builder.Default
+    private String reviewStatus = Result.REVIEW_NONE;
+
+    @Column(name = "review_reason", columnDefinition = "TEXT")
+    private String reviewReason;
+
+    @Column(name = "review_reply", columnDefinition = "TEXT")
+    private String reviewReply;
+
+    @Column(name = "reviewed_at")
+    private LocalDateTime reviewedAt;
+
+    public static final String REVIEW_NONE = "none";
+    public static final String REVIEW_PENDING = "pending";
+    public static final String REVIEW_APPROVED = "approved";
+    public static final String REVIEW_REJECTED = "rejected";
+
+    public String reviewStatusEffective() {
+        return reviewStatus == null ? REVIEW_NONE : reviewStatus;
+    }
 }

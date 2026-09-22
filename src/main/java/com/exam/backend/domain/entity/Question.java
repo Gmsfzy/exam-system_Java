@@ -64,4 +64,14 @@ public class Question extends BaseEntity {
 
     @Column(name = "chapter_id")
     private Long chapterId;
+
+    // ==== M6 材料题（同组题目共享阅读材料） ====
+
+    /** 共享阅读材料正文 */
+    @Column(columnDefinition = "TEXT")
+    private String material;
+
+    /** 材料组标识，同组题目渲染时共用一个材料卡 */
+    @Column(name = "material_group", length = 64)
+    private String materialGroup;
 }
